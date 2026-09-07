@@ -138,13 +138,24 @@ Prossimi step:
       history.replaceState(null, '', next);
     }
 
+    const channel = client.channel('board-' + boardToken, { config: { broadcast: { self: false } } });
+
     saveToSupabase = async function() {
       if (syncingRemote) return;
+      const data = snapshot();
       const { error } = await client
         .from('boards')
-        .update({ data: snapshot(), updated_at: new Date().toISOString() })
+        .update({ data, updated_at: new Date().toISOString() })
         .eq('share_token', boardToken);
       if (error) console.error('Supabase save error:', error);
+      else {
+        const result = await channel.send({
+          type: 'broadcast',
+          event: 'state-update',
+          payload: { data }
+        });
+        if (result !== 'ok') console.error('Supabase broadcast error:', result);
+      }
     }
 
     // Load shared state first; create the board from the current local state if it does not exist.
@@ -165,17 +176,13 @@ Prossimi step:
       if (insertError) console.error('Supabase create board error:', insertError);
     }
 
-    client
-      .channel('board-' + boardToken)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'boards',
-        filter: 'share_token=eq.' + boardToken
-      }, payload => {
-        if (payload.new && payload.new.data) applyRemote(payload.new.data);
+    channel
+      .on('broadcast', { event: 'state-update' }, ({ payload }) => {
+        if (payload && payload.data) applyRemote(payload.data);
       })
-      .subscribe();
+      .subscribe(status => {
+        if (status !== 'SUBSCRIBED') console.log('Realtime channel status:', status);
+      });
 
     window.__teamGtdSupabase = { client, boardToken, saveToSupabase };
 
