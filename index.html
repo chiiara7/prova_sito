@@ -128,74 +128,15 @@ Prossimi step:
       return;
     }
 
+    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     const params = new URLSearchParams(location.search);
-    const boardToken = params.get('board');
+    let boardToken = params.get('board');
 
-    // A board token is mandatory. Never create a new board automatically.
     if (!boardToken) {
-      document.body.innerHTML = `
-        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F5F3EF;font-family:Inter,Arial,sans-serif;color:#0A1931;padding:24px;box-sizing:border-box">
-          <div style="background:#fff;border:1px solid #E8E6E1;border-radius:16px;padding:32px;max-width:520px;text-align:center;box-shadow:0 8px 24px rgba(10,25,49,.08)">
-            <h2 style="margin:0 0 10px;font-size:20px">Link non valido</h2>
-            <p style="margin:0;color:#6B6B6B;font-size:14px">Usa il link condiviso completo della board.</p>
-          </div>
-        </div>`;
-      return;
+      boardToken = crypto.randomUUID();
+      const next = location.pathname + '?board=' + encodeURIComponent(boardToken);
+      history.replaceState(null, '', next);
     }
-
-    // Pass the board token on every Supabase request. RLS uses this header
-    // to allow access only to the board identified by the shared link.
-    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-      global: {
-        headers: {
-          'x-board-token': boardToken
-        }
-      }
-    });
-
-    const gateId = 'team-gtd-access-gate';
-    function ensureGate() {
-      if (document.getElementById(gateId)) return;
-      const el = document.createElement('div');
-      el.id = gateId;
-      el.innerHTML = `
-        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F5F3EF;font-family:Inter,Arial,sans-serif;color:#0A1931;padding:24px;box-sizing:border-box">
-          <div style="background:#fff;border:1px solid #E8E6E1;border-radius:16px;padding:32px;max-width:420px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(10,25,49,.10)">
-            <div style="font-size:28px;font-weight:700;margin-bottom:8px">TEAM GTD</div>
-            <div style="font-size:14px;color:#6B6B6B;margin-bottom:20px">Inserisci la password per accedere alla dashboard.</div>
-            <form id="team-gtd-password-form">
-              <input id="team-gtd-password" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;box-sizing:border-box;border:1px solid #E8E6E1;border-radius:10px;padding:11px 12px;font-size:14px;outline:none;margin-bottom:10px">
-              <button type="submit" style="width:100%;border:0;border-radius:10px;padding:11px 12px;background:#0A1931;color:#C9A96E;font-size:13px;font-weight:700;cursor:pointer">ACCEDI</button>
-              <div id="team-gtd-password-error" style="min-height:18px;margin-top:10px;color:#DC2626;font-size:12px"></div>
-            </form>
-          </div>
-        </div>`;
-      Object.assign(el.style, {position:'fixed', inset:'0', zIndex:'2147483647'});
-      document.body.appendChild(el);
-      const form = el.querySelector('#team-gtd-password-form');
-      const input = el.querySelector('#team-gtd-password');
-      const err = el.querySelector('#team-gtd-password-error');
-      form.addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        const password = input.value;
-        if (!password) { err.textContent = 'Inserisci la password.'; return; }
-        err.textContent = 'Verifica in corso…';
-        const { data, error } = await client.rpc('verify_board_password', {
-          p_share_token: boardToken,
-          p_password: password
-        });
-        if (error || data !== true) {
-          err.textContent = 'Password non corretta.';
-          input.select();
-          return;
-        }
-        el.remove();
-        await loadBoard();
-      });
-      input.focus();
-    }
-
-    let boardLoaded = false;
 
     saveToSupabase = async function() {
       if (syncingRemote) return;
@@ -204,60 +145,41 @@ Prossimi step:
         .update({ data: snapshot(), updated_at: new Date().toISOString() })
         .eq('share_token', boardToken);
       if (error) console.error('Supabase save error:', error);
-    };
-
-    async function loadBoard() {
-      if (boardLoaded) return;
-      boardLoaded = true;
-
-      const { data: row, error: readError } = await client
-        .from('boards')
-        .select('id, data')
-        .eq('share_token', boardToken)
-        .maybeSingle();
-
-      if (readError) {
-        console.error('Supabase load error:', readError);
-        document.body.innerHTML = `
-          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F5F3EF;font-family:Inter,Arial,sans-serif;color:#0A1931;padding:24px;box-sizing:border-box">
-            <div style="background:#fff;border:1px solid #E8E6E1;border-radius:16px;padding:32px;max-width:520px;text-align:center;box-shadow:0 8px 24px rgba(10,25,49,.08)">
-              <h2 style="margin:0 0 10px;font-size:20px">Accesso non disponibile</h2>
-              <p style="margin:0;color:#6B6B6B;font-size:14px">Impossibile verificare il link della board.</p>
-            </div>
-          </div>`;
-        return;
-      }
-
-      if (!row) {
-        document.body.innerHTML = `
-          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F5F3EF;font-family:Inter,Arial,sans-serif;color:#0A1931;padding:24px;box-sizing:border-box">
-            <div style="background:#fff;border:1px solid #E8E6E1;border-radius:16px;padding:32px;max-width:520px;text-align:center;box-shadow:0 8px 24px rgba(10,25,49,.08)">
-              <h2 style="margin:0 0 10px;font-size:20px">Accesso non autorizzato</h2>
-              <p style="margin:0;color:#6B6B6B;font-size:14px">Questo link non corrisponde a una board valida.</p>
-            </div>
-          </div>`;
-        return;
-      }
-
-      applyRemote(row.data);
-
-      client
-        .channel('board-' + boardToken)
-        .on('postgres_changes', {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'boards',
-          filter: 'share_token=eq.' + boardToken
-        }, payload => {
-          if (payload.new && payload.new.data) applyRemote(payload.new.data);
-        })
-        .subscribe();
-
-      window.__teamGtdSupabase = { client, boardToken, saveToSupabase };
-      console.log('Realtime board ready:', location.href);
     }
 
-    ensureGate();
+    // Load shared state first; create the board from the current local state if it does not exist.
+    const { data: row, error: readError } = await client
+      .from('boards')
+      .select('id, data')
+      .eq('share_token', boardToken)
+      .maybeSingle();
+
+    if (readError) {
+      console.error('Supabase load error:', readError);
+    } else if (row) {
+      applyRemote(row.data);
+    } else {
+      const { error: insertError } = await client
+        .from('boards')
+        .insert({ share_token: boardToken, data: snapshot() });
+      if (insertError) console.error('Supabase create board error:', insertError);
+    }
+
+    client
+      .channel('board-' + boardToken)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'boards',
+        filter: 'share_token=eq.' + boardToken
+      }, payload => {
+        if (payload.new && payload.new.data) applyRemote(payload.new.data);
+      })
+      .subscribe();
+
+    window.__teamGtdSupabase = { client, boardToken, saveToSupabase };
+
+    console.log('Realtime board ready:', location.href);
   }
 
   // Wait until the browser has the Supabase client available, then initialize.
