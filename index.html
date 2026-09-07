@@ -128,7 +128,6 @@ Prossimi step:
       return;
     }
 
-    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     const params = new URLSearchParams(location.search);
     let boardToken = params.get('board');
 
@@ -137,6 +136,16 @@ Prossimi step:
       const next = location.pathname + '?board=' + encodeURIComponent(boardToken);
       history.replaceState(null, '', next);
     }
+
+    // Pass the board token on every Supabase request. RLS uses this header
+    // to allow access only to the board identified by the shared link.
+    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      global: {
+        headers: {
+          'x-board-token': boardToken
+        }
+      }
+    });
 
     saveToSupabase = async function() {
       if (syncingRemote) return;
