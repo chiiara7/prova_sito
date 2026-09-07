@@ -129,12 +129,18 @@ Prossimi step:
     }
 
     const params = new URLSearchParams(location.search);
-    let boardToken = params.get('board');
+    const boardToken = params.get('board');
 
+    // A board token is mandatory. Never create a new board automatically.
     if (!boardToken) {
-      boardToken = crypto.randomUUID();
-      const next = location.pathname + '?board=' + encodeURIComponent(boardToken);
-      history.replaceState(null, '', next);
+      document.body.innerHTML = `
+        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F5F3EF;font-family:Inter,Arial,sans-serif;color:#0A1931;padding:24px;box-sizing:border-box">
+          <div style="background:#fff;border:1px solid #E8E6E1;border-radius:16px;padding:32px;max-width:520px;text-align:center;box-shadow:0 8px 24px rgba(10,25,49,.08)">
+            <h2 style="margin:0 0 10px;font-size:20px">Link non valido</h2>
+            <p style="margin:0;color:#6B6B6B;font-size:14px">Usa il link condiviso completo della board.</p>
+          </div>
+        </div>`;
+      return;
     }
 
     // Pass the board token on every Supabase request. RLS uses this header
@@ -156,7 +162,7 @@ Prossimi step:
       if (error) console.error('Supabase save error:', error);
     }
 
-    // Load shared state first; create the board from the current local state if it does not exist.
+    // Load the shared board. Never create a board from an unknown token.
     const { data: row, error: readError } = await client
       .from('boards')
       .select('id, data')
@@ -165,14 +171,28 @@ Prossimi step:
 
     if (readError) {
       console.error('Supabase load error:', readError);
-    } else if (row) {
-      applyRemote(row.data);
-    } else {
-      const { error: insertError } = await client
-        .from('boards')
-        .insert({ share_token: boardToken, data: snapshot() });
-      if (insertError) console.error('Supabase create board error:', insertError);
+      document.body.innerHTML = `
+        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F5F3EF;font-family:Inter,Arial,sans-serif;color:#0A1931;padding:24px;box-sizing:border-box">
+          <div style="background:#fff;border:1px solid #E8E6E1;border-radius:16px;padding:32px;max-width:520px;text-align:center;box-shadow:0 8px 24px rgba(10,25,49,.08)">
+            <h2 style="margin:0 0 10px;font-size:20px">Accesso non disponibile</h2>
+            <p style="margin:0;color:#6B6B6B;font-size:14px">Impossibile verificare il link della board.</p>
+          </div>
+        </div>`;
+      return;
     }
+
+    if (!row) {
+      document.body.innerHTML = `
+        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F5F3EF;font-family:Inter,Arial,sans-serif;color:#0A1931;padding:24px;box-sizing:border-box">
+          <div style="background:#fff;border:1px solid #E8E6E1;border-radius:16px;padding:32px;max-width:520px;text-align:center;box-shadow:0 8px 24px rgba(10,25,49,.08)">
+            <h2 style="margin:0 0 10px;font-size:20px">Accesso non autorizzato</h2>
+            <p style="margin:0;color:#6B6B6B;font-size:14px">Questo link non corrisponde a una board valida.</p>
+          </div>
+        </div>`;
+      return;
+    }
+
+    applyRemote(row.data);
 
     client
       .channel('board-' + boardToken)
